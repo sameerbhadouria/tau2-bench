@@ -1,0 +1,6 @@
+dotenv
+matplotlib
+seaborn
+pandas
+numpy
+xai_sdk
