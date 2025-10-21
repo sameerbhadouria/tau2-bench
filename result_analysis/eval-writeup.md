@@ -225,7 +225,7 @@ Added the following new Agent metric enhancements:
 
 All of these will be printed for each simulated trial.
 
-Steps to run:
+Steps to run :
 
 1. LLM Grader based Evaluation
 

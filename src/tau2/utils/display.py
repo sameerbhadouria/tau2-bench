@@ -255,11 +255,68 @@ class ConsoleDisplay:
                         f"- {i}: {assertion.nl_assertion} {'✅' if assertion.met else '❌'}\n\t{assertion.justification}\n"
                     )
 
-            # Add additional info if present
+            # Add LLM grader info if present
             if simulation.reward_info.info:
-                sim_info.append("\nAdditional Info:\n", style="bold magenta")
-                for key, value in simulation.reward_info.info.items():
-                    sim_info.append(f"{key}: {value}\n")
+                info = simulation.reward_info.info
+
+                # Check if this is LLM grader output
+                is_llm_grader = "grading_model" in info
+
+                if is_llm_grader:
+                    sim_info.append("\n🤖 LLM Grader Results:\n", style="bold magenta")
+
+                    if "grading_model" in info:
+                        sim_info.append(f"Model: {info['grading_model']}\n")
+
+                    if "success" in info:
+                        success_marker = "✅" if info["success"] else "❌"
+                        sim_info.append(f"Success: {success_marker} {info['success']}\n")
+
+                    if "confidence" in info:
+                        sim_info.append(f"Confidence: {info['confidence']}\n")
+
+                    if "grading_cost" in info and info["grading_cost"]:
+                        sim_info.append(f"Grading Cost: ${info['grading_cost']:.4f}\n")
+
+                    if "reasoning" in info:
+                        sim_info.append(f"\nReasoning:\n{info['reasoning']}\n")
+
+                    # Display criteria met
+                    if "criteria_met" in info and info["criteria_met"]:
+                        sim_info.append("\n✅ Criteria Met:\n", style="bold green")
+                        for criterion in info["criteria_met"]:
+                            sim_info.append(f"  • {criterion}\n")
+
+                    # Display criteria not met
+                    if "criteria_not_met" in info and info["criteria_not_met"]:
+                        sim_info.append("\n❌ Criteria Not Met:\n", style="bold red")
+                        for criterion in info["criteria_not_met"]:
+                            sim_info.append(f"  • {criterion}\n")
+
+                    # Display criteria partially met
+                    if "criteria_partially_met" in info and info["criteria_partially_met"]:
+                        sim_info.append("\n⚠️  Criteria Partially Met:\n", style="bold yellow")
+                        for criterion in info["criteria_partially_met"]:
+                            sim_info.append(f"  • {criterion}\n")
+
+                    # Display other criteria categories if present
+                    if "criteria_not_applicable" in info and info["criteria_not_applicable"]:
+                        sim_info.append("\n⊘ Criteria Not Applicable:\n", style="dim")
+                        for criterion in info["criteria_not_applicable"]:
+                            sim_info.append(f"  • {criterion}\n")
+
+                    if "criteria_not_evaluated" in info and info["criteria_not_evaluated"]:
+                        sim_info.append("\n⊗ Criteria Not Evaluated:\n", style="dim")
+                        for criterion in info["criteria_not_evaluated"]:
+                            sim_info.append(f"  • {criterion}\n")
+                        if "criteria_not_evaluated_reason" in info and info["criteria_not_evaluated_reason"]:
+                            sim_info.append(f"  Reason: {info['criteria_not_evaluated_reason']}\n")
+
+                else:
+                    # Display non-LLM-grader info as before
+                    sim_info.append("\nAdditional Info:\n", style="bold magenta")
+                    for key, value in info.items():
+                        sim_info.append(f"{key}: {value}\n")
 
         cls.console.print(
             Panel(sim_info, title="Simulation Overview", border_style="blue")
@@ -397,9 +454,6 @@ class ConsoleDisplay:
         grader_model = None
         total_grading_cost = 0.0
         confidence_scores = []
-        criteria_met_counts = {}
-        criteria_not_met_counts = {}
-        criteria_partially_met_counts = {}
 
         for sim in results.simulations:
             if sim.reward_info and sim.reward_info.info:
@@ -417,27 +471,11 @@ class ConsoleDisplay:
                     if "confidence" in info and info["confidence"]:
                         confidence_scores.append(info["confidence"])
 
-                    # Count criteria
-                    if "criteria_met" in info and info["criteria_met"]:
-                        for criterion in info["criteria_met"]:
-                            criterion_str = str(criterion)
-                            criteria_met_counts[criterion_str] = criteria_met_counts.get(criterion_str, 0) + 1
-
-                    if "criteria_not_met" in info and info["criteria_not_met"]:
-                        for criterion in info["criteria_not_met"]:
-                            criterion_str = str(criterion)
-                            criteria_not_met_counts[criterion_str] = criteria_not_met_counts.get(criterion_str, 0) + 1
-
-                    if "criteria_partially_met" in info and info["criteria_partially_met"]:
-                        for criterion in info["criteria_partially_met"]:
-                            criterion_str = str(criterion)
-                            criteria_partially_met_counts[criterion_str] = criteria_partially_met_counts.get(criterion_str, 0) + 1
-
         if not has_llm_grader:
             return
 
-        # Display LLM grader metrics
-        content.append("\n🤖 LLM Grader Metrics:\n", style="bold cyan")
+        # Display LLM grader summary metrics
+        content.append("\n🤖 LLM Grader Summary:\n", style="bold cyan")
 
         if grader_model:
             content.append(f"   Model: {grader_model}\n")
@@ -445,26 +483,14 @@ class ConsoleDisplay:
         if total_grading_cost > 0:
             content.append(f"   Total Grading Cost: ${total_grading_cost:.4f}\n")
             avg_grading_cost = total_grading_cost / len(results.simulations)
-            content.append(f"   Avg Grading Cost: ${avg_grading_cost:.4f}\n")
+            content.append(f"   Avg Grading Cost per Simulation: ${avg_grading_cost:.4f}\n")
 
         if confidence_scores:
             avg_confidence = sum(confidence_scores) / len(confidence_scores)
+            min_confidence = min(confidence_scores)
+            max_confidence = max(confidence_scores)
             content.append(f"   Avg Confidence: {avg_confidence:.2f}\n")
-
-        if criteria_met_counts:
-            content.append("\n   ✅ Criteria Met:\n", style="bold green")
-            for criterion, count in sorted(criteria_met_counts.items(), key=lambda x: -x[1])[:5]:
-                content.append(f"      • {criterion}: {count}x\n")
-
-        if criteria_not_met_counts:
-            content.append("\n   ❌ Criteria Not Met:\n", style="bold red")
-            for criterion, count in sorted(criteria_not_met_counts.items(), key=lambda x: -x[1])[:5]:
-                content.append(f"      • {criterion}: {count}x\n")
-
-        if criteria_partially_met_counts:
-            content.append("\n   ⚠️  Criteria Partially Met:\n", style="bold yellow")
-            for criterion, count in sorted(criteria_partially_met_counts.items(), key=lambda x: -x[1])[:5]:
-                content.append(f"      • {criterion}: {count}x\n")
+            content.append(f"   Confidence Range: [{min_confidence:.2f}, {max_confidence:.2f}]\n")
 
         content.append("\n")
 
