@@ -124,6 +124,78 @@ The following table shows the success rate of the task over 4 trials each consis
 - Grok achieves a perfect score in Cancellation Policy, Insurance Issues, Insurance Issues Tricking and Membership & Benefits categories.
 - On the flip side, it does it really struggles with Complex Multi-Transaction and Compensation/Complaints categories getting almost all of them wrong.
 
+#### Statistical approach
+
+The dependence on success vs task complexity can be proved statistically as well. To do this we can create a measure of task complexity using the num_messages, task_num_agent_actions and duration to create a combined standaridized z-score metric for complexity. We can then compute the p-value with the reward=0 vs reward=1 distributions to identify statistical significance.
+For sake of brevity please take a look at the `Task Complexity metrics` section in the `grok_airline_result_analysis.ipynb` notebook.
+
+Using a statistical approach will allow us to scale and automate this process in the future.
+
+### Failure Deep Dives Summary
+
+For brevity only the summary is provided here, see the `Failed Task Deep Dive` section in the `grok_airline_result_analysis.ipynb` notebook.
+
+- Task Category: Complex Multi-Transaction Tricking, Task Id: 23, Trials# 0, 3
+
+  - This is a fairly complex transaction where multiple bookings need to be made with payment efficiently split across them to minimize charges to a Mastercard.
+  - User Agent instruction included not to mention previous booking was a Basic Economy but Grok 4 detected as out of policy and recommended
+  - User finds a loop hole to split the reservation in to 3 to circumvent the policy of using only 1 certifacte per reservation. This is fine.
+  - Grok 4 Agent correctly cancels the previous reservation per policy and is also able to identify that the user trick is per policy and proceeds with the split reservation.
+  - Grok identifies that the first names of 2 existing passenger were not the same as the new names requested by the user and it needs this to be corrected.
+    - However, in Trial#0, per policy it requested the user for DOB and full names treating them as new passengers instead of updating the first names of the existing passenger profile as requested by the user. The test penalized the Agent reward in this case treating the interaction as a failure.
+  - In Trial#3, the user does provide the extra details but the Agent makes a calculation error in computing the correct balance post refund. This results in a payment failure due to not enough balance on the card. The Agent does recognize this error and eventually corrects it but this is not finalized because it was waiting for a confirmation for the updated charge on the card. The user terminates the session.
+
+  - Comments:
+    - IMO, trial#0 is an edge case, because the policy states having full information for passengers for a new booking. However, it doesn't explicitly state that profiles of existing passenger from older reservation can be modified.
+    - Trial#3, was a mistake and grok identified and corrected it. Unfortunately, it got penalized for early termination by the user.
+    - Both these interactions suffer from using a binary reward/scoring system for Agents.
+
+- Task Category: Compensation/Complaints, Task Id: 27, Trials# 1, 3
+
+  - Purpose of this task was to assess that agent correctly issues compensation for delayed flight. This is 2 leg flight with the first leg inprogress and second leg delayed.
+  - In Trial#1, the user seems frustrated about delay in the second leg and asks for refund options. The Agent identifies the delayed status of the second leg and offers refund options verifying the user Silver status.
+  - Unfortunately, the Agent doesn't check the status of the first leg before offering a full refund + the additional compensation initially.
+  - User agrees and Agent only later tries to verify the status of the first leg and realizes the mistake. It clarifies this with the user and transfers to the human agent.
+  - In Trial#3, in this case the Agent does correctly identify the flight status and issues the Compensation correctly, but goes too far to make modifications to the flight itinerary by rebooking a flight. This was outside the scope of task expected actions and unfortunately failed the tasks.
+
+  - Comments:
+    - Trial#1 was clearly wrong and could frustrate the user more or worse make a grave mistake.
+    - Trial#3, could have been an acceptable scenario if the task allowed for this.
+
+# Critique
+
+Tau2-bench made a great addition to the evaluation framework by enabling conversational agents in a dual control environment. This unlocked a new domain to measure realistic user-agent interactions. The reward has a good breadth using a combination of enviroment, communication, action and database state as a score. However, there are still opportunities to improve the evaluation system.
+
+## Methodology Weakness:
+
+- The Pass^k metric is kind of similar to recall and ignores precision and consistency. In other words, an agent that tries 10 times and gets only 1 of them right gets full credit. This could be an attribute of a lucky generation.
+- Secondly, all tasks are treated as equal weighted. A simple task of a single generation has the same weight has a complex multi transaction task.
+
+  ![Image](../figs/task_complexity_vs_reward.png "Task Complexity vs Reward")
+
+- As seen in the image above, harder and complex tasks are clearly difficult to pass.
+
+## Coverage Gaps
+
+- Missing image input: In many real world scenario, users experience can be significantly improved by asking them to take a screen shot of their itinerary or upload the itinerary as an attachment. This will cover a wider population with different skill levels and demographics to assist them more effectively.
+- We further need to account for the user skill and communication diversity, with tasks simulating typos, cross lingual words. Such a task would also need to include some assertions on bias.
+- Missing multi-lingual tasks to broaden the scope model benchmarks for other languages.
+- Inclusion of Identity Verification tools. If someone gets hold of my reservation number they should not be able to cancel my reservation without verifying they are indeed who they are.
+
+## Real-World Applicability
+
+- There is a big gap in the tool stability and robustness. We need to enhance task examples that should be tested for tool failure recovery from transient errors as well long delays in recovery. This can simulate real production use cases when a service might return errors or be unresponsive for a long time (like todays AWS outage) leading to degraded service and user experience.
+- Further these things need to built into the Agent policy itself to prevent fraudsters from leveraging such situations to coax the agent to deviate from an unclear policy.
+
+## Technical Limitations
+
+1. Binary Reward Score
+   - Although there are many breakdown metrics measuring the Actions, assertions and DB state checks, they only contribute a binary component to the overall reward which is still a binary. This unfortunately is too crude and strict of a measuring and is the biggest weakness of the methodology.
+   - As seen in the Failure Deep Dive summary above, in both Task# 23 and 27, the agent gets to the right outcome with some minor deviations and yet was penalized by the binary scoring. We need a better way to create a wider range of score.
+2. Randomness
+   - The fact that pass^k metrics were decreasing with increasing k, across all model provider labs creates some reproducibility challenges.
+   - Eventhough the temperature is set to 0 for all benchmarks, other underlying techniques used for decoding like nucleus sampling are still stochastic and not deterministic. This means that some pass@k may be due to luck.
+
 ## References:
 
 - [tau2-bench paper](https://arxiv.org/pdf/2506.07982)
