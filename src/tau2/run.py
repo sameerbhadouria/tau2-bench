@@ -142,13 +142,15 @@ def run_domain(config: RunConfig) -> Results:
         max_errors=config.max_errors,
         save_to=save_to,
         console_display=True,
-        evaluation_type=EvaluationType.ALL,
+        evaluation_type=EvaluationType(config.evaluation_type),
         max_concurrency=config.max_concurrency,
         seed=config.seed,
         log_level=config.log_level,
+        llm_grader_model=config.llm_grader_model,
+        llm_grader_args=config.llm_grader_args,
     )
     metrics = compute_metrics(simulation_results)
-    ConsoleDisplay.display_agent_metrics(metrics)
+    ConsoleDisplay.display_agent_metrics(metrics, simulation_results)
 
     return simulation_results
 
@@ -171,6 +173,8 @@ def run_tasks(
     max_concurrency: int = 1,
     seed: Optional[int] = 300,
     log_level: Optional[str] = "INFO",
+    llm_grader_model: Optional[str] = None,
+    llm_grader_args: Optional[dict] = None,
 ) -> Results:
     """
     Runs tasks for a given domain.
@@ -344,6 +348,8 @@ def run_tasks(
                 max_errors=max_errors,
                 evaluation_type=evaluation_type,
                 seed=seed,
+                llm_grader_model=llm_grader_model,
+                llm_grader_args=llm_grader_args,
             )
             simulation.trial = trial
             if console_display:
@@ -390,6 +396,8 @@ def run_task(
     max_errors: int = 10,
     evaluation_type: EvaluationType = EvaluationType.ALL,
     seed: Optional[int] = None,
+    llm_grader_model: Optional[str] = None,
+    llm_grader_args: Optional[dict] = None,
 ) -> SimulationRun:
     """
     Runs tasks for a given domain.
@@ -486,12 +494,43 @@ def run_task(
     )
     simulation = orchestrator.run()
 
+    # Prepare LLM grader parameters with defaults
+    grader_model = llm_grader_model if llm_grader_model else llm_agent
+    grader_args = llm_grader_args if llm_grader_args else llm_args_agent
+
+    # Load domain policy and guidelines for LLM grader if needed
+    domain_policy = None
+    agent_instruction = None
+    global_user_sim_guidelines = None
+
+    if evaluation_type == EvaluationType.LLM_GRADER:
+        # Auto-load domain policy from environment
+        domain_policy = environment.get_policy()
+
+        # Use the agent's system prompt (includes both instruction and policy formatted)
+        agent_instruction = agent.system_prompt
+
+        # Load user simulator guidelines from file
+        user_sim_guidelines_path = DATA_DIR / "tau2" / "user_simulator" / "simulation_guidelines_tools.md"
+        try:
+            with open(user_sim_guidelines_path, "r") as f:
+                global_user_sim_guidelines = f.read()
+        except Exception as e:
+            logger.warning(f"Failed to load user sim guidelines from {user_sim_guidelines_path}: {e}")
+            # Fallback to get_global_user_sim_guidelines if file not found
+            global_user_sim_guidelines = get_global_user_sim_guidelines()
+
     reward_info = evaluate_simulation(
         domain=domain,
         task=task,
         simulation=simulation,
         evaluation_type=evaluation_type,
         solo_mode=solo_mode,
+        agent_instruction=agent_instruction,
+        domain_policy=domain_policy,
+        global_user_sim_guidelines=global_user_sim_guidelines,
+        llm_grader_model=grader_model,
+        llm_grader_args=grader_args,
     )
 
     simulation.reward_info = reward_info

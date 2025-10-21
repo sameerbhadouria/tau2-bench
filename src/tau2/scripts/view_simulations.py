@@ -236,7 +236,7 @@ def main(
             # Display metrics
             ConsoleDisplay.console.clear()
             metrics = compute_metrics(results)
-            ConsoleDisplay.display_agent_metrics(metrics)
+            ConsoleDisplay.display_agent_metrics(metrics, results)
             continue
 
         elif results and choice == "3":

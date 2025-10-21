@@ -240,12 +240,18 @@ def compute_metrics(results: Results) -> AgentMetrics:
 
     # Calculate quartile boundaries
     quartile_labels = ["Q1", "Q2", "Q3", "Q4"]
-    df["complexity_quartile"] = pd.qcut(
-        df["derived_complexity"],
-        q=4,
-        labels=quartile_labels,
-        duplicates="drop"
-    )
+
+    # Only compute quartiles if we have enough data points
+    if len(df) >= 4:
+        df["complexity_quartile"] = pd.qcut(
+            df["derived_complexity"],
+            q=4,
+            labels=quartile_labels,
+            duplicates="drop"
+        )
+    else:
+        # For fewer data points, just assign Q1 to all
+        df["complexity_quartile"] = "Q1"
 
     # Calculate success rate for each quartile
     success_rate_by_complexity_quartile = {}

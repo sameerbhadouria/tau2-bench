@@ -14,7 +14,7 @@ from tau2.data_model.message import (
     ToolMessage,
     UserMessage,
 )
-from tau2.data_model.simulation import RunConfig, SimulationRun
+from tau2.data_model.simulation import Results, RunConfig, SimulationRun
 from tau2.data_model.tasks import Action, Task
 from tau2.metrics.agent_metrics import AgentMetrics, is_successful
 
@@ -332,13 +332,19 @@ class ConsoleDisplay:
                 cls.console.print(table)
 
     @classmethod
-    def display_agent_metrics(cls, metrics: AgentMetrics):
+    def display_agent_metrics(cls, metrics: AgentMetrics, results: Optional[Results] = None):
         # Create content for metrics panel
         content = Text()
 
         # Add average reward section
         content.append("🏆 Average Reward: ", style="bold cyan")
-        content.append(f"{metrics.avg_reward:.4f}\n\n")
+        content.append(f"{metrics.avg_reward:.4f}\n")
+        content.append(f"   SEM: {metrics.avg_reward_sem:.4f}\n")
+        content.append(f"   95% CI: [{metrics.avg_reward_ci_95[0]:.4f}, {metrics.avg_reward_ci_95[1]:.4f}]\n\n")
+
+        # Add success rate
+        content.append("✅ Success Rate: ", style="bold cyan")
+        content.append(f"{metrics.success_rate:.2%}\n\n")
 
         # Add Pass^k metrics section
         content.append("📈 Pass^k Metrics:", style="bold cyan")
@@ -346,9 +352,32 @@ class ConsoleDisplay:
             content.append(f"\nk={k}: ", style="bold white")
             content.append(f"{pass_hat_k:.3f}")
 
+        # Add task complexity statistics
+        content.append("\n\n📊 Task Complexity (Derived):", style="bold cyan")
+        stats = metrics.derived_complexity_stats
+        content.append(f"\n   Min: {stats.min:.4f}, Max: {stats.max:.4f}, Mean: {stats.mean:.4f}\n")
+        content.append(f"   P90: {stats.percentile_90:.4f}, P95: {stats.percentile_95:.4f}, P99: {stats.percentile_99:.4f}\n")
+
+        # Add success rate by complexity quartile
+        if metrics.success_rate_by_complexity_quartile:
+            content.append("\n📊 Success Rate by Complexity:", style="bold cyan")
+            for quartile in ["Q1", "Q2", "Q3", "Q4"]:
+                if quartile in metrics.success_rate_by_complexity_quartile:
+                    rate = metrics.success_rate_by_complexity_quartile[quartile]
+                    content.append(f"\n   {quartile} (least → most complex): ", style="bold white")
+                    content.append(f"{rate:.2%}")
+
+        # Add average number of tool calls
+        content.append("\n\n🔧 Average Tool Calls: ", style="bold cyan")
+        content.append(f"{metrics.avg_num_tool_calls:.2f}\n")
+
         # Add average agent cost section
-        content.append("\n\n💰 Average Cost per Conversation: ", style="bold cyan")
-        content.append(f"${metrics.avg_agent_cost:.4f}\n\n")
+        content.append("\n💰 Average Cost per Conversation: ", style="bold cyan")
+        content.append(f"${metrics.avg_agent_cost:.4f}\n")
+
+        # Add LLM grader specific metrics if available
+        if results:
+            cls._add_llm_grader_metrics(content, results)
 
         # Create and display panel
         metrics_panel = Panel(
@@ -359,6 +388,85 @@ class ConsoleDisplay:
         )
 
         cls.console.print(metrics_panel)
+
+    @classmethod
+    def _add_llm_grader_metrics(cls, content: Text, results: Results):
+        """Add LLM grader specific metrics if available in results."""
+        # Check if any simulation has LLM grader info
+        has_llm_grader = False
+        grader_model = None
+        total_grading_cost = 0.0
+        confidence_scores = []
+        criteria_met_counts = {}
+        criteria_not_met_counts = {}
+        criteria_partially_met_counts = {}
+
+        for sim in results.simulations:
+            if sim.reward_info and sim.reward_info.info:
+                info = sim.reward_info.info
+                if "grading_model" in info:
+                    has_llm_grader = True
+                    if not grader_model:
+                        grader_model = info.get("grading_model")
+
+                    # Accumulate grading cost
+                    if "grading_cost" in info and info["grading_cost"]:
+                        total_grading_cost += info["grading_cost"]
+
+                    # Accumulate confidence scores
+                    if "confidence" in info and info["confidence"]:
+                        confidence_scores.append(info["confidence"])
+
+                    # Count criteria
+                    if "criteria_met" in info and info["criteria_met"]:
+                        for criterion in info["criteria_met"]:
+                            criterion_str = str(criterion)
+                            criteria_met_counts[criterion_str] = criteria_met_counts.get(criterion_str, 0) + 1
+
+                    if "criteria_not_met" in info and info["criteria_not_met"]:
+                        for criterion in info["criteria_not_met"]:
+                            criterion_str = str(criterion)
+                            criteria_not_met_counts[criterion_str] = criteria_not_met_counts.get(criterion_str, 0) + 1
+
+                    if "criteria_partially_met" in info and info["criteria_partially_met"]:
+                        for criterion in info["criteria_partially_met"]:
+                            criterion_str = str(criterion)
+                            criteria_partially_met_counts[criterion_str] = criteria_partially_met_counts.get(criterion_str, 0) + 1
+
+        if not has_llm_grader:
+            return
+
+        # Display LLM grader metrics
+        content.append("\n🤖 LLM Grader Metrics:\n", style="bold cyan")
+
+        if grader_model:
+            content.append(f"   Model: {grader_model}\n")
+
+        if total_grading_cost > 0:
+            content.append(f"   Total Grading Cost: ${total_grading_cost:.4f}\n")
+            avg_grading_cost = total_grading_cost / len(results.simulations)
+            content.append(f"   Avg Grading Cost: ${avg_grading_cost:.4f}\n")
+
+        if confidence_scores:
+            avg_confidence = sum(confidence_scores) / len(confidence_scores)
+            content.append(f"   Avg Confidence: {avg_confidence:.2f}\n")
+
+        if criteria_met_counts:
+            content.append("\n   ✅ Criteria Met:\n", style="bold green")
+            for criterion, count in sorted(criteria_met_counts.items(), key=lambda x: -x[1])[:5]:
+                content.append(f"      • {criterion}: {count}x\n")
+
+        if criteria_not_met_counts:
+            content.append("\n   ❌ Criteria Not Met:\n", style="bold red")
+            for criterion, count in sorted(criteria_not_met_counts.items(), key=lambda x: -x[1])[:5]:
+                content.append(f"      • {criterion}: {count}x\n")
+
+        if criteria_partially_met_counts:
+            content.append("\n   ⚠️  Criteria Partially Met:\n", style="bold yellow")
+            for criterion, count in sorted(criteria_partially_met_counts.items(), key=lambda x: -x[1])[:5]:
+                content.append(f"      • {criterion}: {count}x\n")
+
+        content.append("\n")
 
 
 class MarkdownDisplay:

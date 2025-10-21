@@ -202,11 +202,14 @@ Tau2-bench made a great addition to the evaluation framework by enabling convers
 
 ## Technical Limitations
 
+- The configurations are configured by CLI mainly making it harder to
+
 # Improvements
 
 Enhancement to the binary score
 
 - LLM grader
+- Count based weighted reward
 
 Metrics enhancements:
 
@@ -220,7 +223,27 @@ Added the following new Agent metric enhancements:
 4. Success rate by task complexity quartiles
 5. Num agent tool calls.
 
-All of these will be printed for each simulated trial
+All of these will be printed for each simulated trial.
+
+Steps to run:
+
+1. LLM Grader based Evaluation
+
+```bash
+tau2 evaluate-trajs data/simulations/grok_airline_all.json \
+   --evaluation-type llm_grader \
+   --llm-grader-model xai/grok-4-fast-reasoning \
+   -o data/experiments/domains/airline/llm_grader
+```
+
+2. Count weighted based Evaluation
+
+```bash
+tau2 evaluate-trajs data/simulations/grok_airline_all.json \
+   --evaluation-type weighted_all_with_nl_assertions \
+   --llm-grader-model xai/grok-4-fast-reasoning \
+   -o data/experiments/domains/airline/weighted_all_with_nl_assertions
+```
 
 # Future Enhancements:
 

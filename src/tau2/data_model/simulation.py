@@ -146,6 +146,27 @@ class RunConfig(BaseModel):
             default=DEFAULT_SEED,
         ),
     ]
+    llm_grader_model: Annotated[
+        Optional[str],
+        Field(
+            description="The LLM model to use for LLM grader evaluation. Defaults to llm_agent if not provided.",
+            default=None,
+        ),
+    ]
+    llm_grader_args: Annotated[
+        Optional[dict],
+        Field(
+            description="The arguments to pass to the LLM grader (temperature, max_tokens, etc.). Defaults to llm_args_agent if not provided.",
+            default=None,
+        ),
+    ]
+    evaluation_type: Annotated[
+        str,
+        Field(
+            description="The type of evaluation to use (env, communicate, action, all, nl_assertions, all_with_nl_assertions, weighted_all, weighted_all_with_nl_assertions, llm_grader)",
+            default="all",
+        ),
+    ]
     log_level: Annotated[
         Optional[str],
         Field(
@@ -249,6 +270,13 @@ class RewardInfo(BaseModel):
         Optional[dict[RewardType, float]],
         Field(
             description="The breakdown of the reward.",
+            default=None,
+        ),
+    ]
+    reward_weights: Annotated[
+        Optional[dict[RewardType, float]],
+        Field(
+            description="The weights used to calculate the weighted reward.",
             default=None,
         ),
     ]

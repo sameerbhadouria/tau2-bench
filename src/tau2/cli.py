@@ -124,10 +124,29 @@ def add_run_args(parser):
         help=f"The seed to use for the simulation. Default is {DEFAULT_SEED}.",
     )
     parser.add_argument(
+        "--evaluation-type",
+        type=str,
+        default="all",
+        choices=["env", "communicate", "action", "all", "nl_assertions", "all_with_nl_assertions", "weighted_all", "weighted_all_with_nl_assertions", "llm_grader"],
+        help="The type of evaluation to use. Options: env (environment only), communicate (communication only), action (actions only), all (multiplicative), nl_assertions (NL assertions only), all_with_nl_assertions (all + NL assertions), weighted_all (weighted average), weighted_all_with_nl_assertions (weighted + NL assertions), llm_grader (LLM-based grading). Default is 'all'.",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default=DEFAULT_LOG_LEVEL,
         help=f"The log level to use for the simulation. Default is {DEFAULT_LOG_LEVEL}.",
+    )
+    parser.add_argument(
+        "--llm-grader-model",
+        type=str,
+        default=None,
+        help="The LLM model to use for LLM grader evaluation. Defaults to --agent-llm if not provided.",
+    )
+    parser.add_argument(
+        "--llm-grader-args",
+        type=json.loads,
+        default=None,
+        help="The arguments to pass to the LLM grader (temperature, max_tokens, etc.). Defaults to --agent-llm-args if not provided. Provide as JSON.",
     )
 
 
@@ -157,7 +176,10 @@ def main():
                 save_to=args.save_to,
                 max_concurrency=args.max_concurrency,
                 seed=args.seed,
+                evaluation_type=args.evaluation_type,
                 log_level=args.log_level,
+                llm_grader_model=args.llm_grader_model,
+                llm_grader_args=args.llm_grader_args,
             )
         )
     )
@@ -213,6 +235,25 @@ def main():
         "-o",
         "--output-dir",
         help="Directory to save updated trajectory files with recomputed rewards. If not provided, only displays metrics.",
+    )
+    evaluate_parser.add_argument(
+        "--evaluation-type",
+        type=str,
+        default="all",
+        choices=["env", "communicate", "action", "all", "nl_assertions", "all_with_nl_assertions", "weighted_all", "weighted_all_with_nl_assertions", "llm_grader"],
+        help="The type of evaluation to use. Options: env, communicate, action, all (default), nl_assertions, all_with_nl_assertions, weighted_all, weighted_all_with_nl_assertions, llm_grader.",
+    )
+    evaluate_parser.add_argument(
+        "--llm-grader-model",
+        type=str,
+        default=None,
+        help="The LLM model to use for LLM grader evaluation. Defaults to agent's model if not provided.",
+    )
+    evaluate_parser.add_argument(
+        "--llm-grader-args",
+        type=json.loads,
+        default=None,
+        help="The arguments to pass to the LLM grader (temperature, max_tokens, etc.). Provide as JSON.",
     )
     evaluate_parser.set_defaults(func=lambda args: run_evaluate_trajectories(args))
 
@@ -334,11 +375,18 @@ def run_evaluate_trajectories(args):
 
     from loguru import logger
 
+    from tau2.evaluator.evaluator import EvaluationType
     from tau2.scripts.evaluate_trajectories import evaluate_trajectories
 
     logger.configure(handlers=[{"sink": sys.stderr, "level": "ERROR"}])
 
-    evaluate_trajectories(args.paths, args.output_dir)
+    evaluate_trajectories(
+        args.paths,
+        args.output_dir,
+        evaluation_type=EvaluationType(args.evaluation_type),
+        llm_grader_model=args.llm_grader_model,
+        llm_grader_args=args.llm_grader_args,
+    )
 
 
 def run_prepare_submission(args):
