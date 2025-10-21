@@ -23,7 +23,7 @@ tau2-bench has a concept of domain specific tasks and for this exercise, the eva
 For each domain the standard evaluation returns 3 metrics:
 
 1. Average rewards across all samples
-2. pass^k Mean pass@k across all tasks
+2. pass^k Mean pass^k across all tasks
 3. Average agent cost across all samples
 
 This benchmark was run with 4 trials for better statistical reliability (also benchmark submission guideline) and using the temperature of 0.0 - a standard value across benchmarking frameworks to reduce randomness.
@@ -64,7 +64,7 @@ Observations:
 
 1. Decent success rate at average reward of 0.6 ~approx 30/50 tasks. Based on the current tau2-bench [Leaderboard](https://taubench.com/#leaderboard) `grok-4-fast-reasoning` would be rank #4 tied with Claude Sonnet 4 and ahead of Claude Opus 4, Qwen3-Max, o4-mini and o3 models.
 2. Very economical to run, at $0.0157 per conversation and 50 tasks it costs only $0.80 cents to run 1 trial. This is more than 11x cheaper compared to Open AI GPT-5.
-3. The Pass@k seems to be declining with increase in k. There is a drop of 22.7% or 13.6pp from 0.6 @ k=1 to 0.464 @ k=4. This is concerning since we set the temperatue to 0. This also appears to be the case for other models in the leaderboard.
+3. The Pass^k seems to be declining with increase in k. There is a drop of 22.7% or 13.6pp from 0.6 @ k=1 to 0.464 @ k=4. It shows the models don't stay consistent over multiple trials even if we set the temperatue to 0. This also appears to be the case for other models in the leaderboard.
 
 ## Deep Dive
 
@@ -162,41 +162,82 @@ For brevity only the summary is provided here, see the `Failed Task Deep Dive` s
     - Trial#1 was clearly wrong and could frustrate the user more or worse make a grave mistake.
     - Trial#3, could have been an acceptable scenario if the task allowed for this.
 
+- Task Category: Task # 25, trial#0, 1, 2, 3
+
+  - Trial# 3 failed due to privacy concerns because the user asked to create a booking for a friend but didn't know their user id. Friend was saved as a passenger on the users profile.
+  - However, Trials#0,1 2 succeeded in creating a new booking for the friend.
+
+  - IMO this part of the policy is subjective and for safety reason Trial# 3 should be considered pass as well.
+
+I would say this a policy issue to define this rule, but agent was more conservative even though the policy didn't state this explicitly
+
 # Critique
 
-Tau2-bench made a great addition to the evaluation framework by enabling conversational agents in a dual control environment. This unlocked a new domain to measure realistic user-agent interactions. The reward has a good breadth using a combination of enviroment, communication, action and database state as a score. However, there are still opportunities to improve the evaluation system.
+Tau2-bench made a great addition to the evaluation framework by enabling conversational agents in a dual control environment. This unlocked a new domain to measure realistic user-agent interactions. The reward has a good breadth using a combination of enviroment, communication, action and database state as a score. However, there are still opportunities to improve the evaluation system. The Pass^k is still a solid metric for consistency.
 
 ## Methodology Weakness:
 
-- The Pass^k metric is kind of similar to recall and ignores precision and consistency. In other words, an agent that tries 10 times and gets only 1 of them right gets full credit. This could be an attribute of a lucky generation.
-- Secondly, all tasks are treated as equal weighted. A simple task of a single generation has the same weight has a complex multi transaction task.
+1. I believe the biggest weakness is the Binary Reward Score
 
-  ![Image](../figs/task_complexity_vs_reward.png "Task Complexity vs Reward")
+   - Although there are many breakdown metrics measuring the Actions, assertions and DB state checks, they only contribute a binary component to the overall reward which is still a binary. This unfortunately is too crude and strict of a measuring and is the biggest weakness of the methodology.
+   - As seen in the Failure Deep Dive summary above, in both Task# 23 and 27, the agent gets to the right outcome with some minor deviations and yet was penalized by the binary scoring. We need a better way to create a wider range of score.
 
-- As seen in the image above, harder and complex tasks are clearly difficult to pass.
+2. Secondly, all tasks are treated as equal weighted. A simple task of a single generation has the same weight has a complex multi transaction task.
+
+![Image](../figs/task_complexity_vs_reward.png "Task Complexity vs Reward")
+
+- As seen in the image above, harder and complex tasks are clearly difficult to pass and should have more weight in the overall score.
 
 ## Coverage Gaps
 
 - Missing image input: In many real world scenario, users experience can be significantly improved by asking them to take a screen shot of their itinerary or upload the itinerary as an attachment. This will cover a wider population with different skill levels and demographics to assist them more effectively.
 - We further need to account for the user skill and communication diversity, with tasks simulating typos, cross lingual words. Such a task would also need to include some assertions on bias.
 - Missing multi-lingual tasks to broaden the scope model benchmarks for other languages.
-- Inclusion of Identity Verification tools. If someone gets hold of my reservation number they should not be able to cancel my reservation without verifying they are indeed who they are.
+- Inclusion of Identity Verification tools. If someone gets hold of my reservation number they should not be able to cancel my reservation without verifying they are indeed who they are. Example #3 for Task id# 25 above with the friends booking creation is a good example for this. This may or not be fraudulent, if the card transaction is refunded due to fraud, the liability might fall either on the friend or airline loosing the cost of the ticket.
 
 ## Real-World Applicability
 
 - There is a big gap in the tool stability and robustness. We need to enhance task examples that should be tested for tool failure recovery from transient errors as well long delays in recovery. This can simulate real production use cases when a service might return errors or be unresponsive for a long time (like todays AWS outage) leading to degraded service and user experience.
-- Further these things need to built into the Agent policy itself to prevent fraudsters from leveraging such situations to coax the agent to deviate from an unclear policy.
+- Further these things need to built into the Agent policy itself to prevent fraudsters from leveraging such situations to coax the agent to deviate from an unclear policy. Example Task # 25, with success trials # 0, 1, 2 to make a new booking for a friend.
 
 ## Technical Limitations
 
-1. Binary Reward Score
-   - Although there are many breakdown metrics measuring the Actions, assertions and DB state checks, they only contribute a binary component to the overall reward which is still a binary. This unfortunately is too crude and strict of a measuring and is the biggest weakness of the methodology.
-   - As seen in the Failure Deep Dive summary above, in both Task# 23 and 27, the agent gets to the right outcome with some minor deviations and yet was penalized by the binary scoring. We need a better way to create a wider range of score.
-2. Randomness
-   - The fact that pass^k metrics were decreasing with increasing k, across all model provider labs creates some reproducibility challenges.
-   - Eventhough the temperature is set to 0 for all benchmarks, other underlying techniques used for decoding like nucleus sampling are still stochastic and not deterministic. This means that some pass@k may be due to luck.
+# Improvements
+
+Enhancement to the binary score
+
+- LLM grader
+
+Metrics enhancements:
+
+Added the following new Agent metric enhancements:
+
+1. Based on insights from Anthropic research [3], instead of simply reporting mean eval score, report
+   a. Standard Error of the Mean (SEM) and
+   b. 95% confidence interval as 1.96 x SEM
+2. Success rate (successes/total runs) instead of simple Pass^k
+3. Task Complexity Metric - Introduced a concept of task complexity using the expected num_task_actions, real num_messages and real duration. This gives a mix of static task expecation and agent performance on task as an empirical value of task complexity. A mean over all tasks can be considered as a Agent Velocity metric at the model level.
+4. Success rate by task complexity quartiles
+5. Num agent tool calls.
+
+All of these will be printed for each simulated trial
+
+# Future Enhancements:
+
+- Metrics:
+  - Further thinking of the Agent velocity metric as defined in the above enhancements as task complexity.
+  - Recommendation#3 from [3] - Reducing variance within questions by decomposing score into 2 terms:
+  - The mean score - the average score that the model would achieve if asked the same question an infinite number of times—even if the model might produce a different answer each time; and
+  - Random component - the difference between a realized question score and the mean score for that question
+  - Recommendation#4 from [3] - Use paired-difference tests to compare models.
+- Train before Test detection - There is some material out there that suggests training models on eval data. This could be fine for a localized private task but should be considered cheating for public domain models. This may have impact on both safety and alignment of the model.
 
 ## References:
 
-- [tau2-bench paper](https://arxiv.org/pdf/2506.07982)
-- [tau2-bench Leaderboard](https://taubench.com/#leaderboard)
+[1] [tau2-bench paper](https://arxiv.org/pdf/2506.07982)
+
+[2] [tau2-bench Leaderboard](https://taubench.com/#leaderboard)
+
+[3] [Statistical Approach to Evals](https://www.anthropic.com/research/statistical-approach-to-model-evals)
+
+[4] [Adding Error Bars to Evals](https://arxiv.org/abs/2411.00640)
