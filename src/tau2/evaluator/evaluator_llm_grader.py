@@ -60,7 +60,7 @@ class LLMGraderEvaluator(EvaluatorBase):
        Your goal is to quantify the agent's performance based on the task definition and conversation trajectory.
        Respond with a JSON object with the following fields:
        - success: true or false
-       - confidence: 0.0-1.0
+       - confidence: a score in the range of 0.0-1.0 indicating the confidence in your decision
        - reasoning: brief explanation of your decision
        - criteria_met: list of criteria that were met
        - criteria_not_met: list of criteria that were not met
@@ -438,10 +438,8 @@ class LLMGraderEvaluator(EvaluatorBase):
 
             # Parse the JSON
             result = json.loads(json_content)
-
-            # Extract success status
             success = result.get("success", False)
-            reward = 1.0 if success else 0.0
+            reward = result.get("confidence", 1.0)
 
             # Build detailed feedback from the JSON structure
             feedback_parts = []

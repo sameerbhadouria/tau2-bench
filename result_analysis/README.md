@@ -202,16 +202,73 @@ Tau2-bench made a great addition to the evaluation framework by enabling convers
 
 ## Technical Limitations
 
-- The configurations are configured by CLI mainly making it harder to
+- The configurations are configured by CLI mainly making it harder to replicate and could benefit from using a yaml file based configuration launcher.
 
 # Improvements
 
-Enhancement to the binary score
+## Enhancement to the binary reward score
 
-- LLM grader
-- Count based weighted reward
+The main proposed and implement enhancement is the update to the binary reward score.
+There are 2 specific new Evaluators incorporated:
 
-Metrics enhancements:
+1. LLM Evaluation Grader:
+
+   - This is a new evaluator type introduced as part of the existing Evaluator framework that leverages LLM as an evaluator.
+   - The LLM Grader is assigned a role of evaluator explaining the 2 involved parties the Agent and the User in the communication. The system prompt includes details of the instructions (prompt) provided to both the agent and user so that it understands their role properly.
+   - The LLM grader is also provided with the domain policy to verify the agent stays on track.
+   - As part of the evaluation we provide both the task information and the message trajectories for the LLM to evaluate and grade the conversation.
+   - The LLM returns a structured json with true/false success flag but a finer grained confidence score that we use as our reward score. In addition, it also provides a reasoning for evaluation and tracks which criteria was fully, partially met or not met for extra debuggability.
+
+     ```json
+     {
+         "success": true/false,
+         "confidence": 0.0-1.0,
+         "reasoning": "Explanation of the decision",
+         "criteria_met": ["criterion1", "criterion2"],
+         "criteria_not_met": [],
+         "criteria_partially_met": []
+     }
+     ```
+
+   - Details in the file `src/tau2/evaluator/evaluator_llm_grader.py`
+   - Steps to run:
+
+     ```bash
+       tau2 evaluate-trajs data/simulations/grok_airline_all.json \
+         --evaluation-type llm_grader \
+         --llm-grader-model xai/grok-4-fast-reasoning \
+         -o data/experiments/domains/airline/llm_grader
+     ```
+
+2. Manual Weighted reward score:
+
+   - The original binary reward system used multiplicative combination of components, causing information loss when any component failed. This made it impossible to distinguish partial success from complete failure.
+   - The weighted rewards system addresses the limitation of binary rewards where all components must succeed for any credit to be given. By using weighted averaging instead of multiplication, agents receive partial credit when they successfully complete some but not all reward components.
+   - Added a new Evaluation type `weighted_all` to trigger this evaluator from the CLI.
+   -
+
+   - Details in the file `src/tau2/evaluator/evaluator.py`
+   - Steps to run:
+     ```bash
+     tau2 evaluate-trajs data/simulations/grok_airline_all.json \
+       --evaluation-type weighted_all \
+       --llm-grader-model xai/grok-4-fast-reasoning \
+       -o data/experiments/domains/airline/weighted_all
+     ```
+
+### Comparison with Other Evaluators
+
+| Feature            | LLM_GRADER                            | ALL (Rule-based)              | WEIGHTED_ALL         |
+| ------------------ | ------------------------------------- | ----------------------------- | -------------------- |
+| **Flexibility**    | High - can handle nuanced criteria    | Low - requires explicit rules | Medium               |
+| **Speed**          | Slower (LLM API call)                 | Fast                          | Fast                 |
+| **Cost**           | Has API costs                         | Free                          | Free                 |
+| **Consistency**    | Variable (use temp=0 for determinism) | Perfect                       | Perfect              |
+| **Setup**          | Simple - no rule engineering          | Complex - need explicit rules | Complex              |
+| **Partial Credit** | Yes - via confidence/reasoning        | No                            | Yes - via weights    |
+| **Transparency**   | Includes reasoning in feedback        | Binary checks only            | Binary per component |
+
+## Metrics enhancements:
 
 Added the following new Agent metric enhancements:
 
@@ -223,37 +280,49 @@ Added the following new Agent metric enhancements:
 4. Success rate by task complexity quartiles
 5. Num agent tool calls.
 
-All of these will be printed for each simulated trial.
+These metrics are now visible in the Agent performance metrics and task metrics as shown below.
 
-Steps to run :
+![agent image](../figs//enhanced_agent_metrics.png "Agent Metrics")
+![task image](../figs//enhanced_task_metrics.png "Task specific Metrics")
 
-1. LLM Grader based Evaluation
+## Other Improvements (not implemented)
 
-```bash
-tau2 evaluate-trajs data/simulations/grok_airline_all.json \
-   --evaluation-type llm_grader \
-   --llm-grader-model xai/grok-4-fast-reasoning \
-   -o data/experiments/domains/airline/llm_grader
-```
+The following improvements can be added as future enhancements to address shortcomings in the critique.
 
-2. Count weighted based Evaluation
+### Coverage Gaps
 
-```bash
-tau2 evaluate-trajs data/simulations/grok_airline_all.json \
-   --evaluation-type weighted_all_with_nl_assertions \
-   --llm-grader-model xai/grok-4-fast-reasoning \
-   -o data/experiments/domains/airline/weighted_all_with_nl_assertions
-```
+- Image Inputs: As mentioned multi modal input specifically images are missing from the task evaluation.
 
-# Future Enhancements:
+  - We can easily add another tool calling functionality that serves canned images stored locally for certain tasks.
+  - This becomes part of the user_simulation process where the user_scenarios covers a case for attaching images in the instruction to the user agent.
+  - As an advanced technique, we could potentially also use an LLM to do text to image generation dynamically during the conversation. One downside is this would increase cost of the evaluation.
 
-- Metrics:
-  - Further thinking of the Agent velocity metric as defined in the above enhancements as task complexity.
-  - Recommendation#3 from [3] - Reducing variance within questions by decomposing score into 2 terms:
-  - The mean score - the average score that the model would achieve if asked the same question an infinite number of times—even if the model might produce a different answer each time; and
-  - Random component - the difference between a realized question score and the mean score for that question
-  - Recommendation#4 from [3] - Use paired-difference tests to compare models.
+- Multi-lingual/cross-lingual support or typos
+  - In this case we can use another multi-lingual LLM as a message interceptor to introduce noise in the user messages.
+  - The noise could be to intentionally introduce typos or drop some words, replace words with some other language to replicate mixed lingual messages.
+
+### Real-World Applicability
+
+- Further improvements are need to test agent against real world tool call failures
+- Each tool call should have a failure simulator that returns an error for x% of all calls simulating short bursty errors
+- For long delay, once a session is failed, maintain a cache of the failed session and fail them again n times before returning a success.
+- This enhancement will test agents for their resiliency in real work scenarios.
+
+### Metrics:
+
+- Further thinking of the Agent velocity metric as defined in the above enhancements as task complexity.
+- Recommendation#3 from [3] - Reducing variance within questions by decomposing score into 2 terms:
+- The mean score - the average score that the model would achieve if asked the same question an infinite number of times—even if the model might produce a different answer each time; and
+- Random component - the difference between a realized question score and the mean score for that question
+- Recommendation#4 from [3] - Use paired-difference tests to compare models.
+
+### Technical:
+
 - Train before Test detection - There is some material out there that suggests training models on eval data. This could be fine for a localized private task but should be considered cheating for public domain models. This may have impact on both safety and alignment of the model.
+
+---
+
+## NEED MORE TIME :-)
 
 ## References:
 
